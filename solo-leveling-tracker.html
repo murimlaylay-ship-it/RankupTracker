@@ -1,0 +1,634 @@
+import { useState, useEffect, useCallback } from "react";
+
+const RANKS = [
+  { name: "E", label: "E-Rank", min: 0, color: "#6b7280", glow: "#6b7280", bg: "#1f2937" },
+  { name: "D", label: "D-Rank", min: 100, color: "#3b82f6", glow: "#3b82f6", bg: "#1e3a5f" },
+  { name: "C", label: "C-Rank", min: 300, color: "#10b981", glow: "#10b981", bg: "#064e3b" },
+  { name: "B", label: "B-Rank", min: 600, color: "#f59e0b", glow: "#f59e0b", bg: "#451a03" },
+  { name: "A", label: "A-Rank", min: 1000, color: "#ef4444", glow: "#ef4444", bg: "#450a0a" },
+  { name: "S", label: "S-Rank", min: 1500, color: "#a855f7", glow: "#a855f7", bg: "#3b0764" },
+  { name: "SS", label: "Shadow Monarch", min: 2500, color: "#f0abfc", glow: "#e879f9", bg: "#1a0026" },
+];
+
+const TASK_TYPES = ["Quest", "Training", "Study", "Health", "Work", "Personal"];
+
+const getRank = (xp) => {
+  for (let i = RANKS.length - 1; i >= 0; i--) {
+    if (xp >= RANKS[i].min) return RANKS[i];
+  }
+  return RANKS[0];
+};
+
+const getNextRank = (xp) => {
+  for (let i = 0; i < RANKS.length; i++) {
+    if (xp < RANKS[i].min) return RANKS[i];
+  }
+  return null;
+};
+
+const xpForTask = (task) => {
+  const base = { Easy: 10, Medium: 25, Hard: 50 };
+  return base[task.difficulty] || 10;
+};
+
+const now = () => new Date().toISOString();
+const today = () => new Date().toISOString().split("T")[0];
+
+const formatDate = (iso) => {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
+
+const STORAGE_KEY = "sl_tracker_data_v1";
+
+const defaultData = () => ({
+  profile: { name: "Hunter", age: "", height: "", weight: [] },
+  tasks: [],
+  notes: [],
+  meals: [],
+  createdAt: now(),
+});
+
+export default function App() {
+  const [data, setData] = useState(null);
+  const [tab, setTab] = useState("dashboard");
+  const [loading, setLoading] = useState(true);
+  const [notification, setNotification] = useState(null);
+  const [showRankUp, setShowRankUp] = useState(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await window.storage.get(STORAGE_KEY);
+        if (res?.value) {
+          setData(JSON.parse(res.value));
+        } else {
+          setData(defaultData());
+        }
+      } catch {
+        setData(defaultData());
+      }
+      setLoading(false);
+    };
+    load();
+  }, []);
+
+  const save = useCallback(async (newData) => {
+    setData(newData);
+    try {
+      await window.storage.set(STORAGE_KEY, JSON.stringify(newData));
+    } catch (e) {
+      console.error("Save failed", e);
+    }
+  }, []);
+
+  const totalXP = data?.tasks?.filter(t => t.completed).reduce((s, t) => s + xpForTask(t), 0) || 0;
+  const rank = getRank(totalXP);
+  const nextRank = getNextRank(totalXP);
+
+  const notify = (msg) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  if (loading) return (
+    <div style={{ minHeight: "100vh", background: "#050a14", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>⚔</div>
+        <p style={{ color: "#a855f7", fontFamily: "monospace", letterSpacing: 4 }}>LOADING SYSTEM...</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#050a14", color: "#e2e8f0", fontFamily: "'Segoe UI', sans-serif", position: "relative", overflow: "hidden" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: #0d1117; } ::-webkit-scrollbar-thumb { background: #a855f7; border-radius: 2px; }
+        .tab-btn { background: none; border: none; cursor: pointer; padding: 8px 16px; border-radius: 6px; font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; transition: all 0.2s; color: #64748b; }
+        .tab-btn:hover { color: #a855f7; }
+        .tab-btn.active { color: #a855f7; border-bottom: 2px solid #a855f7; }
+        .sl-input { background: #0d1117; border: 1px solid #1e293b; color: #e2e8f0; border-radius: 6px; padding: 8px 12px; font-size: 14px; width: 100%; outline: none; transition: border-color 0.2s; font-family: 'Rajdhani', sans-serif; }
+        .sl-input:focus { border-color: #a855f7; }
+        .sl-btn { background: linear-gradient(135deg, #7c3aed, #a855f7); border: none; color: white; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 1px; transition: all 0.2s; }
+        .sl-btn:hover { opacity: 0.85; transform: scale(0.98); }
+        .sl-btn-sm { padding: 4px 10px; font-size: 12px; }
+        .sl-btn-danger { background: linear-gradient(135deg, #b91c1c, #ef4444); }
+        .sl-btn-ghost { background: transparent; border: 1px solid #334155; color: #94a3b8; }
+        .sl-btn-ghost:hover { border-color: #a855f7; color: #a855f7; }
+        .card { background: #0d1117; border: 1px solid #1e293b; border-radius: 10px; padding: 16px; }
+        .card-glow { border-color: #7c3aed44; box-shadow: 0 0 20px #7c3aed22; }
+        .glow-text { text-shadow: 0 0 20px currentColor; }
+        .rank-badge { font-family: 'Cinzel', serif; font-weight: 900; }
+        .task-item { background: #0d1117; border: 1px solid #1e293b; border-radius: 8px; padding: 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; transition: border-color 0.2s; }
+        .task-item:hover { border-color: #334155; }
+        .task-item.done { opacity: 0.55; }
+        input[type=checkbox] { width: 16px; height: 16px; accent-color: #a855f7; cursor: pointer; flex-shrink: 0; }
+        .select-sl { background: #0d1117; border: 1px solid #1e293b; color: #e2e8f0; border-radius: 6px; padding: 8px 12px; font-size: 14px; font-family: 'Rajdhani', sans-serif; outline: none; cursor: pointer; }
+        .select-sl:focus { border-color: #a855f7; }
+        .glitch { animation: glitch 3s infinite; }
+        @keyframes glitch { 0%,95%,100% { text-shadow: 0 0 10px #a855f7; } 96% { text-shadow: -2px 0 #f0abfc, 2px 0 #7c3aed, 0 0 15px #a855f7; } 97% { text-shadow: 2px 0 #f0abfc, -2px 0 #7c3aed; } }
+        .xp-bar { height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden; }
+        .xp-fill { height: 100%; background: linear-gradient(90deg, #7c3aed, #a855f7, #e879f9); border-radius: 4px; transition: width 0.5s ease; }
+        .particles { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 0; }
+        .particle { position: absolute; width: 2px; height: 2px; background: #a855f7; border-radius: 50%; animation: float linear infinite; opacity: 0.4; }
+        @keyframes float { 0% { transform: translateY(100vh) scale(0); opacity: 0; } 20% { opacity: 0.4; } 80% { opacity: 0.4; } 100% { transform: translateY(-10vh) scale(1); opacity: 0; } }
+        .rank-up-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: flex; align-items: center; justify-content: center; }
+        .rank-up-card { background: #0d1117; border: 2px solid #a855f7; border-radius: 16px; padding: 48px; text-align: center; animation: rankUp 0.5s ease; box-shadow: 0 0 60px #a855f766; }
+        @keyframes rankUp { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .notification { position: fixed; top: 20px; right: 20px; background: #1e0f33; border: 1px solid #a855f7; border-radius: 8px; padding: 12px 20px; z-index: 200; animation: slideIn 0.3s ease; font-family: 'Rajdhani', sans-serif; color: #e2e8f0; box-shadow: 0 0 20px #a855f744; }
+        @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        textarea.sl-input { resize: vertical; min-height: 80px; }
+        .diff-badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-family: 'Rajdhani', sans-serif; font-weight: 700; letter-spacing: 1px; }
+        .section-title { font-family: 'Cinzel', serif; font-size: 13px; letter-spacing: 3px; color: #64748b; text-transform: uppercase; margin-bottom: 12px; }
+        .stat-card { background: #0d1117; border: 1px solid #1e293b; border-radius: 8px; padding: 12px 16px; text-align: center; }
+        .stat-num { font-family: 'Cinzel', serif; font-size: 28px; font-weight: 700; color: #a855f7; }
+        .stat-label { font-size: 11px; color: #64748b; letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; font-family: 'Rajdhani', sans-serif; }
+        .nav-bar { background: #08101a; border-bottom: 1px solid #1e293b; padding: 0 24px; display: flex; align-items: center; gap: 4px; overflow-x: auto; }
+        .summary-card { background: linear-gradient(135deg, #0d1117, #150d24); border: 1px solid #3b0764; border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+      `}</style>
+
+      {/* Particles */}
+      <div className="particles">
+        {[...Array(15)].map((_, i) => (
+          <div key={i} className="particle" style={{ left: `${Math.random() * 100}%`, animationDuration: `${6 + Math.random() * 10}s`, animationDelay: `${Math.random() * 10}s`, width: i % 3 === 0 ? 3 : 2, height: i % 3 === 0 ? 3 : 2 }} />
+        ))}
+      </div>
+
+      {/* Rank Up Overlay */}
+      {showRankUp && (
+        <div className="rank-up-overlay" onClick={() => setShowRankUp(null)}>
+          <div className="rank-up-card">
+            <p style={{ fontFamily: "Rajdhani", color: "#64748b", letterSpacing: 3, marginBottom: 16 }}>LEVEL UP</p>
+            <div className="rank-badge glitch" style={{ fontSize: 80, color: showRankUp.color }}>
+              {showRankUp.name}
+            </div>
+            <p style={{ fontFamily: "Cinzel", fontSize: 22, color: "#e2e8f0", marginTop: 16 }}>{showRankUp.label}</p>
+            <p style={{ fontFamily: "Rajdhani", color: "#64748b", marginTop: 8 }}>You have grown stronger.</p>
+            <button className="sl-btn" style={{ marginTop: 24 }} onClick={() => setShowRankUp(null)}>Continue</button>
+          </div>
+        </div>
+      )}
+
+      {/* Notification */}
+      {notification && <div className="notification">⚡ {notification}</div>}
+
+      {/* Header */}
+      <div style={{ background: "#08101a", borderBottom: "1px solid #1e293b", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", zIndex: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 22 }}>⚔</span>
+          <div>
+            <p style={{ fontFamily: "Cinzel", fontWeight: 900, fontSize: 16, color: "#e2e8f0", letterSpacing: 2 }} className="glitch">SYSTEM</p>
+            <p style={{ fontFamily: "Rajdhani", fontSize: 11, color: "#64748b", letterSpacing: 3 }}>PERSONAL TRACKER</p>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ textAlign: "right" }}>
+            <p style={{ fontFamily: "Rajdhani", fontSize: 12, color: "#64748b" }}>{data.profile.name}</p>
+            <p style={{ fontFamily: "Rajdhani", fontSize: 11, color: "#64748b" }}>{totalXP} XP</p>
+          </div>
+          <div className="rank-badge" style={{ fontSize: 28, color: rank.color, textShadow: `0 0 15px ${rank.glow}` }}>{rank.name}</div>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <div className="nav-bar" style={{ position: "relative", zIndex: 10 }}>
+        {["dashboard", "quests", "notes", "nutrition", "profile", "summary"].map(t => (
+          <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
+            {t === "dashboard" ? "⊕ Dashboard" : t === "quests" ? "⚔ Quests" : t === "notes" ? "📜 Log" : t === "nutrition" ? "🍖 Nutrition" : t === "profile" ? "👤 Hunter" : "📊 Summary"}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div style={{ maxWidth: 780, margin: "0 auto", padding: "24px 16px", position: "relative", zIndex: 10 }}>
+        {tab === "dashboard" && <Dashboard data={data} totalXP={totalXP} rank={rank} nextRank={nextRank} setTab={setTab} />}
+        {tab === "quests" && <Quests data={data} save={save} notify={notify} setShowRankUp={setShowRankUp} totalXP={totalXP} />}
+        {tab === "notes" && <Notes data={data} save={save} notify={notify} />}
+        {tab === "nutrition" && <Nutrition data={data} save={save} notify={notify} />}
+        {tab === "profile" && <Profile data={data} save={save} notify={notify} />}
+        {tab === "summary" && <Summary data={data} totalXP={totalXP} rank={rank} />}
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ data, totalXP, rank, nextRank, setTab }) {
+  const completedToday = data.tasks.filter(t => t.completed && t.completedAt?.startsWith(today())).length;
+  const totalCompleted = data.tasks.filter(t => t.completed).length;
+  const lastWeight = data.profile.weight?.slice(-1)[0];
+  const xpToNext = nextRank ? nextRank.min - totalXP : null;
+  const xpProgress = nextRank ? ((totalXP - rank.min) / (nextRank.min - rank.min)) * 100 : 100;
+
+  return (
+    <div>
+      {/* Rank Card */}
+      <div className="card card-glow" style={{ marginBottom: 20, textAlign: "center", padding: "32px 24px", background: `linear-gradient(135deg, #0d1117, ${rank.bg})` }}>
+        <p style={{ fontFamily: "Rajdhani", letterSpacing: 4, color: "#64748b", fontSize: 12 }}>CURRENT RANK</p>
+        <div className="rank-badge glitch" style={{ fontSize: 80, color: rank.color, textShadow: `0 0 30px ${rank.glow}`, lineHeight: 1.1, margin: "8px 0" }}>{rank.name}</div>
+        <p style={{ fontFamily: "Cinzel", fontSize: 18, color: "#e2e8f0" }}>{rank.label}</p>
+        <p style={{ fontFamily: "Rajdhani", color: "#64748b", marginTop: 4 }}>{totalXP} Total XP</p>
+        {nextRank && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#64748b", fontFamily: "Rajdhani", marginBottom: 6 }}>
+              <span>{rank.name}</span><span>{Math.round(xpProgress)}%</span><span>{nextRank.name}</span>
+            </div>
+            <div className="xp-bar">
+              <div className="xp-fill" style={{ width: `${xpProgress}%` }} />
+            </div>
+            <p style={{ fontFamily: "Rajdhani", fontSize: 12, color: "#64748b", marginTop: 6 }}>{xpToNext} XP to {nextRank.label}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
+        <div className="stat-card"><div className="stat-num">{completedToday}</div><div className="stat-label">Today's Quests</div></div>
+        <div className="stat-card"><div className="stat-num">{totalCompleted}</div><div className="stat-label">Total Done</div></div>
+        <div className="stat-card"><div className="stat-num">{data.tasks.filter(t => !t.completed).length}</div><div className="stat-label">Active Quests</div></div>
+        <div className="stat-card"><div className="stat-num">{lastWeight ? `${lastWeight.value}` : "—"}</div><div className="stat-label">Weight (kg)</div></div>
+      </div>
+
+      {/* Quick Actions */}
+      <p className="section-title">Quick Access</p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {[
+          { label: "⚔ Add Quest", tab: "quests" },
+          { label: "📜 Write Log", tab: "notes" },
+          { label: "🍖 Log Meal", tab: "nutrition" },
+          { label: "📊 View Summary", tab: "summary" },
+        ].map(({ label, tab: t }) => (
+          <button key={t} className="sl-btn sl-btn-ghost" style={{ padding: "14px", fontFamily: "Rajdhani", fontSize: 14, borderRadius: 8 }} onClick={() => setTab(t)}>{label}</button>
+        ))}
+      </div>
+
+      {/* Recent Tasks */}
+      {data.tasks.slice(-3).reverse().map(task => (
+        <div key={task.id} className="task-item" style={{ marginTop: 8, opacity: task.completed ? 0.5 : 1 }}>
+          <span style={{ fontSize: 14, color: task.completed ? "#10b981" : "#a855f7" }}>{task.completed ? "✓" : "◈"}</span>
+          <span style={{ fontFamily: "Rajdhani", flex: 1, fontSize: 14 }}>{task.title}</span>
+          <span style={{ fontSize: 11, color: "#64748b" }}>+{xpForTask(task)} XP</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Quests({ data, save, notify, setShowRankUp, totalXP }) {
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState("Quest");
+  const [difficulty, setDifficulty] = useState("Medium");
+  const [desc, setDesc] = useState("");
+  const [filter, setFilter] = useState("all");
+
+  const addTask = () => {
+    if (!title.trim()) return;
+    const newTask = { id: Date.now(), title, type, difficulty, desc, completed: false, createdAt: now() };
+    const newData = { ...data, tasks: [...data.tasks, newTask] };
+    save(newData);
+    setTitle(""); setDesc("");
+    notify(`Quest accepted: ${title}`);
+  };
+
+  const toggleTask = (id) => {
+    const prevXP = data.tasks.filter(t => t.completed).reduce((s, t) => s + xpForTask(t), 0);
+    const prevRank = getRank(prevXP);
+    const newTasks = data.tasks.map(t => t.id === id ? { ...t, completed: !t.completed, completedAt: !t.completed ? now() : null } : t);
+    const newXP = newTasks.filter(t => t.completed).reduce((s, t) => s + xpForTask(t), 0);
+    const newRankData = getRank(newXP);
+    save({ ...data, tasks: newTasks });
+    const task = data.tasks.find(t => t.id === id);
+    if (!task.completed) {
+      notify(`Quest complete! +${xpForTask(task)} XP`);
+      if (newRankData.name !== prevRank.name) setTimeout(() => setShowRankUp(newRankData), 500);
+    }
+  };
+
+  const deleteTask = (id) => save({ ...data, tasks: data.tasks.filter(t => t.id !== id) });
+
+  const diffColor = { Easy: "#10b981", Medium: "#f59e0b", Hard: "#ef4444" };
+  const filtered = data.tasks.filter(t => filter === "all" ? true : filter === "active" ? !t.completed : t.completed);
+
+  return (
+    <div>
+      <p className="section-title">Accept New Quest</p>
+      <div className="card card-glow" style={{ marginBottom: 20 }}>
+        <input className="sl-input" placeholder="Quest title..." value={title} onChange={e => setTitle(e.target.value)} style={{ marginBottom: 10 }} onKeyDown={e => e.key === "Enter" && addTask()} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <select className="select-sl" value={type} onChange={e => setType(e.target.value)}>
+            {TASK_TYPES.map(t => <option key={t}>{t}</option>)}
+          </select>
+          <select className="select-sl" value={difficulty} onChange={e => setDifficulty(e.target.value)}>
+            {["Easy", "Medium", "Hard"].map(d => <option key={d}>{d}</option>)}
+          </select>
+        </div>
+        <textarea className="sl-input" placeholder="Description (optional)..." value={desc} onChange={e => setDesc(e.target.value)} style={{ marginBottom: 10, minHeight: 60 }} />
+        <button className="sl-btn" onClick={addTask} style={{ width: "100%" }}>⚔ ACCEPT QUEST</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {["all", "active", "done"].map(f => (
+          <button key={f} className={`sl-btn sl-btn-ghost sl-btn-sm ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)} style={{ borderColor: filter === f ? "#a855f7" : undefined, color: filter === f ? "#a855f7" : undefined }}>
+            {f.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 && <p style={{ color: "#64748b", textAlign: "center", fontFamily: "Rajdhani", padding: "32px 0" }}>No quests found.</p>}
+
+      {filtered.map(task => (
+        <div key={task.id} className={`task-item ${task.completed ? "done" : ""}`}>
+          <input type="checkbox" checked={task.completed} onChange={() => toggleTask(task.id)} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "Rajdhani", fontWeight: 600, fontSize: 14, textDecoration: task.completed ? "line-through" : "none" }}>{task.title}</span>
+              <span className="diff-badge" style={{ background: diffColor[task.difficulty] + "33", color: diffColor[task.difficulty] }}>{task.difficulty}</span>
+              <span className="diff-badge" style={{ background: "#1e293b", color: "#64748b" }}>{task.type}</span>
+              <span style={{ fontSize: 11, color: "#a855f7", fontFamily: "Rajdhani", marginLeft: "auto" }}>+{xpForTask(task)} XP</span>
+            </div>
+            {task.desc && <p style={{ fontSize: 12, color: "#64748b", marginTop: 3, fontFamily: "Rajdhani" }}>{task.desc}</p>}
+          </div>
+          <button className="sl-btn sl-btn-danger sl-btn-sm" onClick={() => deleteTask(task.id)} style={{ flexShrink: 0 }}>✕</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Notes({ data, save, notify }) {
+  const [text, setText] = useState("");
+  const [tag, setTag] = useState("General");
+
+  const addNote = () => {
+    if (!text.trim()) return;
+    const note = { id: Date.now(), text, tag, date: now() };
+    save({ ...data, notes: [...(data.notes || []), note] });
+    setText("");
+    notify("Log entry recorded.");
+  };
+
+  const deleteNote = (id) => save({ ...data, notes: data.notes.filter(n => n.id !== id) });
+  const tags = ["General", "Achievement", "Reflection", "Goal", "Observation"];
+  const tagColor = { Achievement: "#10b981", Goal: "#f59e0b", Reflection: "#3b82f6", Observation: "#a855f7", General: "#64748b" };
+
+  return (
+    <div>
+      <p className="section-title">Write Log Entry</p>
+      <div className="card card-glow" style={{ marginBottom: 20 }}>
+        <textarea className="sl-input" placeholder="What did you do today? What did you learn? How do you feel?" value={text} onChange={e => setText(e.target.value)} style={{ marginBottom: 10 }} />
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <select className="select-sl" value={tag} onChange={e => setTag(e.target.value)} style={{ flex: 1 }}>
+            {tags.map(t => <option key={t}>{t}</option>)}
+          </select>
+          <button className="sl-btn" onClick={addNote}>📜 RECORD</button>
+        </div>
+      </div>
+
+      {(data.notes || []).slice().reverse().map(note => (
+        <div key={note.id} className="card" style={{ marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span className="diff-badge" style={{ background: (tagColor[note.tag] || "#64748b") + "33", color: tagColor[note.tag] || "#64748b" }}>{note.tag}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, color: "#64748b", fontFamily: "Rajdhani" }}>{formatDate(note.date)}</span>
+              <button className="sl-btn sl-btn-danger sl-btn-sm" onClick={() => deleteNote(note.id)}>✕</button>
+            </div>
+          </div>
+          <p style={{ fontFamily: "Rajdhani", fontSize: 14, color: "#cbd5e1", lineHeight: 1.6 }}>{note.text}</p>
+        </div>
+      ))}
+      {(!data.notes || data.notes.length === 0) && <p style={{ color: "#64748b", textAlign: "center", fontFamily: "Rajdhani", padding: "32px 0" }}>No log entries yet.</p>}
+    </div>
+  );
+}
+
+function Nutrition({ data, save, notify }) {
+  const [name, setName] = useState("");
+  const [cals, setCals] = useState("");
+  const [meal, setMeal] = useState("Lunch");
+  const meals = data.meals || [];
+  const todayMeals = meals.filter(m => m.date.startsWith(today()));
+  const totalCals = todayMeals.reduce((s, m) => s + (Number(m.cals) || 0), 0);
+
+  const addMeal = () => {
+    if (!name.trim()) return;
+    const entry = { id: Date.now(), name, cals: Number(cals) || 0, meal, date: now() };
+    save({ ...data, meals: [...meals, entry] });
+    setName(""); setCals("");
+    notify("Meal logged.");
+  };
+
+  const deleteMeal = (id) => save({ ...data, meals: meals.filter(m => m.id !== id) });
+  const mealTypes = ["Breakfast", "Lunch", "Dinner", "Snack", "Supplement"];
+  const mealColor = { Breakfast: "#f59e0b", Lunch: "#10b981", Dinner: "#3b82f6", Snack: "#a855f7", Supplement: "#ef4444" };
+
+  return (
+    <div>
+      <p className="section-title">Log Consumption</p>
+      <div className="card card-glow" style={{ marginBottom: 20 }}>
+        <input className="sl-input" placeholder="Food / drink name..." value={name} onChange={e => setName(e.target.value)} style={{ marginBottom: 10 }} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <input className="sl-input" placeholder="Calories (optional)" type="number" value={cals} onChange={e => setCals(e.target.value)} />
+          <select className="select-sl" value={meal} onChange={e => setMeal(e.target.value)}>
+            {mealTypes.map(m => <option key={m}>{m}</option>)}
+          </select>
+        </div>
+        <button className="sl-btn" onClick={addMeal} style={{ width: "100%" }}>🍖 LOG MEAL</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+        <div className="stat-card"><div className="stat-num">{todayMeals.length}</div><div className="stat-label">Today's Meals</div></div>
+        <div className="stat-card"><div className="stat-num">{totalCals}</div><div className="stat-label">Today's Calories</div></div>
+      </div>
+
+      <p className="section-title">Today's Intake</p>
+      {todayMeals.length === 0 && <p style={{ color: "#64748b", textAlign: "center", fontFamily: "Rajdhani", padding: "20px 0" }}>Nothing logged today.</p>}
+      {todayMeals.reverse().map(m => (
+        <div key={m.id} className="task-item">
+          <span style={{ fontSize: 16 }}>🍽</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontFamily: "Rajdhani", fontWeight: 600, fontSize: 14 }}>{m.name}</span>
+              <span className="diff-badge" style={{ background: (mealColor[m.meal] || "#64748b") + "33", color: mealColor[m.meal] || "#64748b" }}>{m.meal}</span>
+            </div>
+            {m.cals > 0 && <p style={{ fontSize: 12, color: "#64748b", fontFamily: "Rajdhani" }}>{m.cals} kcal</p>}
+          </div>
+          <button className="sl-btn sl-btn-danger sl-btn-sm" onClick={() => deleteMeal(m.id)}>✕</button>
+        </div>
+      ))}
+
+      <p className="section-title" style={{ marginTop: 24 }}>All History</p>
+      {[...new Set(meals.map(m => m.date.split("T")[0]))].reverse().slice(0, 7).map(d => {
+        const dayMeals = meals.filter(m => m.date.startsWith(d));
+        const dc = dayMeals.reduce((s, m) => s + (m.cals || 0), 0);
+        return (
+          <div key={d} className="card" style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontFamily: "Rajdhani", color: "#94a3b8" }}>{formatDate(d + "T00:00:00")}</span>
+            <span style={{ fontFamily: "Cinzel", color: "#a855f7" }}>{dayMeals.length} meals · {dc} kcal</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Profile({ data, save, notify }) {
+  const [name, setName] = useState(data.profile.name || "");
+  const [age, setAge] = useState(data.profile.age || "");
+  const [height, setHeight] = useState(data.profile.height || "");
+  const [weight, setWeight] = useState("");
+
+  const saveProfile = () => {
+    save({ ...data, profile: { ...data.profile, name, age, height } });
+    notify("Hunter profile updated.");
+  };
+
+  const logWeight = () => {
+    if (!weight) return;
+    const entry = { value: Number(weight), date: now() };
+    const newWeights = [...(data.profile.weight || []), entry];
+    save({ ...data, profile: { ...data.profile, weight: newWeights } });
+    setWeight("");
+    notify("Weight recorded.");
+  };
+
+  const weights = data.profile.weight || [];
+  const bmi = height && weights.length > 0 ? (weights.slice(-1)[0].value / ((Number(height) / 100) ** 2)).toFixed(1) : null;
+
+  return (
+    <div>
+      <p className="section-title">Hunter Information</p>
+      <div className="card card-glow" style={{ marginBottom: 20 }}>
+        <div style={{ display: "grid", gap: 10 }}>
+          <input className="sl-input" placeholder="Hunter name..." value={name} onChange={e => setName(e.target.value)} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <input className="sl-input" placeholder="Age" type="number" value={age} onChange={e => setAge(e.target.value)} />
+            <input className="sl-input" placeholder="Height (cm)" type="number" value={height} onChange={e => setHeight(e.target.value)} />
+          </div>
+          <button className="sl-btn" onClick={saveProfile} style={{ width: "100%" }}>💾 SAVE PROFILE</button>
+        </div>
+      </div>
+
+      <p className="section-title">Weight Tracker</p>
+      <div className="card card-glow" style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input className="sl-input" placeholder="Weight (kg)" type="number" value={weight} onChange={e => setWeight(e.target.value)} />
+          <button className="sl-btn" onClick={logWeight}>⚖ LOG</button>
+        </div>
+      </div>
+
+      {bmi && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+          <div className="stat-card"><div className="stat-num">{weights.slice(-1)[0].value}</div><div className="stat-label">Weight (kg)</div></div>
+          <div className="stat-card"><div className="stat-num">{height}</div><div className="stat-label">Height (cm)</div></div>
+          <div className="stat-card"><div className="stat-num">{bmi}</div><div className="stat-label">BMI</div></div>
+        </div>
+      )}
+
+      <p className="section-title">Weight History</p>
+      {weights.length === 0 && <p style={{ color: "#64748b", textAlign: "center", fontFamily: "Rajdhani", padding: "20px 0" }}>No weight entries yet.</p>}
+      {weights.slice().reverse().map((w, i) => (
+        <div key={i} className="task-item">
+          <span style={{ fontSize: 16 }}>⚖</span>
+          <span style={{ fontFamily: "Rajdhani", flex: 1 }}>{formatDate(w.date)}</span>
+          <span style={{ fontFamily: "Cinzel", color: "#a855f7" }}>{w.value} kg</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Summary({ data, totalXP, rank }) {
+  const [period, setPeriod] = useState("week");
+
+  const getDaysAgo = (n) => {
+    const d = new Date(); d.setDate(d.getDate() - n);
+    return d.toISOString().split("T")[0];
+  };
+
+  const cutoff = period === "week" ? getDaysAgo(7) : getDaysAgo(30);
+  const tasks = (data.tasks || []).filter(t => t.completedAt && t.completedAt.split("T")[0] >= cutoff);
+  const notes = (data.notes || []).filter(n => n.date.split("T")[0] >= cutoff);
+  const meals = (data.meals || []).filter(m => m.date.split("T")[0] >= cutoff);
+  const weights = (data.profile.weight || []).filter(w => w.date.split("T")[0] >= cutoff);
+  const xpEarned = tasks.reduce((s, t) => s + xpForTask(t), 0);
+  const avgCals = meals.length > 0 ? Math.round(meals.reduce((s, m) => s + (m.cals || 0), 0) / Math.max(period === "week" ? 7 : 30, 1)) : 0;
+
+  const hardCount = tasks.filter(t => t.difficulty === "Hard").length;
+  const getPerformanceRank = () => {
+    if (xpEarned >= 300) return RANKS[5];
+    if (xpEarned >= 150) return RANKS[4];
+    if (xpEarned >= 75) return RANKS[3];
+    if (xpEarned >= 30) return RANKS[2];
+    if (xpEarned >= 10) return RANKS[1];
+    return RANKS[0];
+  };
+  const perfRank = getPerformanceRank();
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        <button className={`sl-btn ${period === "week" ? "" : "sl-btn-ghost"}`} onClick={() => setPeriod("week")}>Weekly</button>
+        <button className={`sl-btn ${period === "month" ? "" : "sl-btn-ghost"}`} onClick={() => setPeriod("month")}>Monthly</button>
+      </div>
+
+      {/* Performance Rank */}
+      <div className="summary-card" style={{ textAlign: "center", marginBottom: 20 }}>
+        <p style={{ fontFamily: "Rajdhani", letterSpacing: 3, color: "#64748b", fontSize: 12 }}>{period === "week" ? "WEEKLY" : "MONTHLY"} PERFORMANCE</p>
+        <div className="rank-badge" style={{ fontSize: 60, color: perfRank.color, textShadow: `0 0 20px ${perfRank.glow}`, margin: "8px 0" }}>{perfRank.name}</div>
+        <p style={{ fontFamily: "Cinzel", color: "#e2e8f0" }}>{perfRank.label}</p>
+        <p style={{ fontFamily: "Rajdhani", fontSize: 12, color: "#64748b", marginTop: 4 }}>+{xpEarned} XP earned this {period}</p>
+      </div>
+
+      {/* Stats Grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, marginBottom: 20 }}>
+        <div className="stat-card"><div className="stat-num">{tasks.length}</div><div className="stat-label">Quests Done</div></div>
+        <div className="stat-card"><div className="stat-num">{hardCount}</div><div className="stat-label">Hard Quests</div></div>
+        <div className="stat-card"><div className="stat-num">{notes.length}</div><div className="stat-label">Log Entries</div></div>
+        <div className="stat-card"><div className="stat-num">{meals.length}</div><div className="stat-label">Meals Logged</div></div>
+        <div className="stat-card"><div className="stat-num">{avgCals}</div><div className="stat-label">Avg Daily kcal</div></div>
+        <div className="stat-card"><div className="stat-num">{xpEarned}</div><div className="stat-label">XP Earned</div></div>
+      </div>
+
+      {/* Weight trend */}
+      {weights.length >= 2 && (() => {
+        const first = weights[0].value;
+        const last = weights.slice(-1)[0].value;
+        const diff = (last - first).toFixed(1);
+        return (
+          <div className="summary-card" style={{ marginBottom: 16 }}>
+            <p style={{ fontFamily: "Rajdhani", letterSpacing: 2, color: "#64748b", fontSize: 12, marginBottom: 8 }}>WEIGHT TREND</p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontFamily: "Cinzel", fontSize: 20, color: "#e2e8f0" }}>{first} → {last} kg</span>
+              <span style={{ fontFamily: "Cinzel", fontSize: 20, color: diff > 0 ? "#ef4444" : "#10b981" }}>{diff > 0 ? "+" : ""}{diff} kg</span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Completed quests list */}
+      <p className="section-title">Completed Quests</p>
+      {tasks.length === 0 && <p style={{ color: "#64748b", textAlign: "center", fontFamily: "Rajdhani", padding: "20px 0" }}>No quests completed in this period.</p>}
+      {tasks.map(t => (
+        <div key={t.id} className="task-item done">
+          <span style={{ color: "#10b981" }}>✓</span>
+          <span style={{ fontFamily: "Rajdhani", flex: 1, fontSize: 14 }}>{t.title}</span>
+          <span style={{ fontSize: 11, color: "#a855f7", fontFamily: "Rajdhani" }}>+{xpForTask(t)} XP</span>
+        </div>
+      ))}
+
+      {/* Notes this period */}
+      {notes.length > 0 && (
+        <>
+          <p className="section-title" style={{ marginTop: 20 }}>Log Entries</p>
+          {notes.map(n => (
+            <div key={n.id} className="card" style={{ marginBottom: 8 }}>
+              <p style={{ fontFamily: "Rajdhani", fontSize: 12, color: "#64748b", marginBottom: 4 }}>{formatDate(n.date)}</p>
+              <p style={{ fontFamily: "Rajdhani", fontSize: 14, color: "#cbd5e1" }}>{n.text}</p>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
